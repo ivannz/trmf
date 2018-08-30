@@ -7,16 +7,22 @@ def trcg(Ax, r, x, n_iterations=1000, tr_delta=0, rtol=1e-5, atol=1e-8,
          args=(), verbose=False):
     r"""Simple Conjugate gradient solver with trust region control.
 
+    Approximately solves `r = A(z - x)` w.r.t. `z` and updating `r` and `x`
+    inplace with the final residual and solution `z`, respectively.
+
     Details
     -------
-    For the given `x` and `r` solves `r = A(z - x)` w.r.t. `z` and upon
-    termination updates `r` and `x` inplace with the final residual and
-    solution `z`, respectively. With the trust region constraint it solves
-    the following problem using CG stating at `x`
+    For the given `r` this procedure uses conjugate gradients method to solve
+    the least squares problem within the trust region of radius :math:`\delta`
+    around `x`:
 
         .. math ::
-            \min_{z} \|A (z - x) - r \|^2
-            s.t. \|z - x\| \leq \delta
+            \min_{p} \|A p - r \|^2
+            s.t. \|x + p\| \leq \delta
+
+    and returns `z = x + p` as the solution. The residual `r` and the point `x`
+    are updated inpalce with the final residual and solution `z`, respectively,
+    upon termination.
 
     Backtracking
     ------------
