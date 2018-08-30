@@ -82,6 +82,31 @@ def trcg(Ax, r, x, n_iterations=1000, tr_delta=0, rtol=1e-5, atol=1e-8,
         Whether to print debug diagnostics regarding the convergence, the
         current trust region radius, gradients, CG iterations and step sizes.
 
+
+    Examples
+    --------
+
+    Import numpy and trcg from this library
+
+    >>> import numpy as np
+    >>> from trmf.tron import trcg
+
+    Create radon psd matrix A
+
+    >>> A = np.random.normal(scale=0.1, size=(10000, 200))
+    >>> A = np.dot(A.T, A)
+
+    Solve using linalv.inv (pivoting)
+
+    >>> r_0, a_0 = np.ones(200), np.ones(200)
+    >>> z_0 = a_0 + np.linalg.solve(A, r_0)
+
+    Solve using trcg
+
+    >>> r, z = r_0.copy(), a_0.copy()
+    >>> trcg(lambda p: np.dot(A, p), r, z, verbose=False)
+    >>> assert np.allclose(z, z_0)
+
     """
     if n_iterations > 0:
         n_iterations = min(n_iterations, len(x))
