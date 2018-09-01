@@ -91,6 +91,9 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
 
     check_consistent_length(regressors, data)
 
+    # by default the intercept is zero
+    intercept = np.zeros((1, n_targets))
+
     # initialize the regression coefficients
     n_regressors = regressors.shape[1]
     beta = np.zeros((n_regressors, n_targets))
@@ -99,8 +102,15 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
     factors, loadings, ar_coef = trmf_init(data, n_components, n_order,
                                            random_state=random_state)
 
+    # prepare for estimating the coefs of the exogenous ridge regression
+    if fit_intercept and n_regressors > 0:
+        regressors_mean = regressors.mean(axis=0, keepdims=True)
+        regressors_cntrd = regressors - regressors_mean
+    else:
+        regressors_cntrd = regressors
+    # end if
+
     # initialize the outer loop
-    XBeta, intercept = np.dot(regressors, beta), np.zeros((1, n_targets))
     ZF, lip_f, lip_b = np.dot(factors, loadings), 500.0, 500.0
     ZF_old_norm, delta = np.linalg.norm(ZF, ord="fro"), +np.inf
 
@@ -109,35 +119,49 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
         if (delta <= ZF_old_norm * tol) and (iteration > 0):
             break
 
-        # fit the intercept to the observed data
-        if fit_intercept:
-            resid = data - XBeta - ZF
-            intercept = resid.mean(axis=0, keepdims=True)
-        # end if
+        # Fit the exogenous ridge-regression with an optional intercept
+        if fit_intercept or n_regressors > 0:
+            resid = data - ZF
+            if fit_intercept:
+                intercept = resid.mean(axis=0, keepdims=True)
+            # end if
 
-        # update the regressors: we've got ZF from the previous iteration
-        if n_regressors > 0:
-            resid = data - intercept - ZF
-            beta, lip_b = b_step(beta, resid, regressors,
-                                 C_B, kind="tron")
+            if n_regressors > 0:
+                if fit_intercept:
+                    resid -= intercept
+                # end if
 
-            XBeta = np.dot(regressors, beta)
+                # solve for beta
+                beta, lip_b = b_step(beta, resid, regressors_cntrd, C_B,
+                                     kind="tron")
+
+                # mean(R) - mean(X) beta = mu
+                if fit_intercept:
+                    intercept -= np.dot(regressors_mean, beta)
+                # end if
+            # end if
+
+            resid = data.copy()
+            if n_regressors > 0:
+                resid -= np.dot(regressors, beta)
+
+            if fit_intercept:
+                resid -= intercept
+        else:
+            resid = data
         # end if
 
         # update (F, Z), then phi
-        resid = data - intercept - XBeta
         for inner_iter in range(n_max_mf_iter):
-            loadings, lip_f = f_step(loadings, resid, factors,
-                                     C_F, eta_F, adj,
-                                     kind=f_step_kind, lip=lip_f)
+            loadings, lip_f = f_step(loadings, resid, factors, C_F, eta_F,
+                                     adj, kind=f_step_kind, lip=lip_f)
 
-            factors = z_step_tron(factors, resid, loadings,
-                                  ar_coef, C_Z, eta_Z)
+            factors = z_step_tron(factors, resid, loadings, ar_coef,
+                                  C_Z, eta_Z)
         # end for
 
         if n_order > 0:
-            ar_coef = phi_step(ar_coef, factors,
-                               C_Z, C_phi, eta_Z)
+            ar_coef = phi_step(ar_coef, factors, C_Z, C_phi, eta_Z)
         # end if
 
         # recompute the reconstruction and convergence criteria
