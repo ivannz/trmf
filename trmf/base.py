@@ -7,6 +7,7 @@ import scipy.sparse as sp
 from sklearn.utils import check_consistent_length, check_array
 
 from .steps import f_step, z_step_tron, phi_step
+from .steps import precompute_graph_reg
 from .ext import b_step
 
 
