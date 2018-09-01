@@ -89,7 +89,6 @@ def f_step_tron_valj(f, Y, Z, C_F, eta_F, adj):
 
     objective = np.linalg.norm(Y - np.dot(Z, F), ord="fro") ** 2
     if C_F > 0:
-
         if eta_F < 1:
             reg_f_l2 = np.linalg.norm(F, ord="fro") ** 2
         else:
@@ -123,7 +122,7 @@ def f_step_tron_grad(f, Y, Z, C_F, eta_F, adj):
 
     grad = np.dot(ZTZ, F) - ZTY
     if C_F > 0 and eta_F > 0:
-        grad += graph_grad(F, adj) * eta_F * coef
+        grad += graph_grad(F, adj) * (eta_F * coef)
 
     return grad.reshape(-1)
 
@@ -142,7 +141,7 @@ def f_step_tron_hess(v, Y, Z, C_F, eta_F, adj):
 
     hess_v = np.dot(ZTZ, V)
     if C_F > 0 and eta_F > 0:
-        hess_v += graph_grad(V, adj) * eta_F * coef
+        hess_v += graph_grad(V, adj) * (eta_F * coef)
 
     return hess_v.reshape(-1)
 
@@ -260,7 +259,7 @@ def phi_step(phi, Z, C_Z, C_phi, eta_Z, nugget=1e-8):
     if C_phi > 0:
         # the {V^{H}}^{H} (\Sigma^2 + C I)^{-1} \Sigma part is reduced
         #  to columnwise operations
-        gain = C_Z * eta_Z * n_order * s
+        gain = (C_Z * eta_Z * n_order) * s
         gain /= gain * s + C_phi * (n_samples - n_order)
     else:
         # do the same cutoff as in np.linalg.pinv(...)
@@ -283,16 +282,22 @@ def z_step_tron_valh(z, Y, F, phi, C_Z, eta_Z):
 
     objective = np.linalg.norm(Y - np.dot(Z, F), ord="fro") ** 2
     if C_Z > 0:
-        reg_z_l2 = (np.linalg.norm(Z, ord="fro") ** 2)
-        if n_samples > n_order and eta_Z > 0:
+        if eta_Z < 1:
+            reg_z_l2 = np.linalg.norm(Z, ord="fro") ** 2
+        else:
+            reg_z_l2, eta_Z = 0., 1.
+        # end if
+
+        if eta_Z > 0 and n_samples > n_order:
             reg_z_ar_j = np.linalg.norm(ar_resid(Z, phi), ord=2, axis=0) ** 2
             reg_z_ar = np.sum(reg_z_ar_j) * n_samples / (n_samples - n_order)
         else:
             reg_z_ar, eta_Z = 0., 0.
         # end if
 
+        # reg_z was implicitly scaled by T d
         reg_z = reg_z_l2 * (1 - eta_Z) + reg_z_ar * eta_Z
-        objective += C_Z * n_targets / n_components * reg_z
+        objective += reg_z * (C_Z * n_targets / n_components)
     # end if
 
     return 0.5 * objective
@@ -314,7 +319,7 @@ def z_step_tron_grad(z, Y, F, phi, C_Z, eta_Z):
     grad = np.dot(Z, FFT) - YFT
     if C_Z > 0 and eta_Z > 0:
         ratio = n_samples / (n_samples - n_order)
-        grad += ar_grad(Z, phi) * ratio * eta_Z * coef
+        grad += ar_grad(Z, phi) * (ratio * eta_Z * coef)
 
     return grad.reshape(-1)
 
@@ -335,7 +340,7 @@ def z_step_tron_hess(v, Y, F, phi, C_Z, eta_Z):
     hess_v = np.dot(V, FFT)
     if C_Z > 0 and eta_Z > 0:
         ratio = n_samples / (n_samples - n_order)
-        hess_v += ar_grad(V, phi) * ratio * eta_Z * coef
+        hess_v += ar_grad(V, phi) * (ratio * eta_Z * coef)
 
     return hess_v.reshape(-1)
 
