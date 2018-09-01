@@ -53,35 +53,29 @@ def ar_grad(Z, phi):
     return ar_hess_vect(Z, Z, phi)
 
 
-# In[17]:
+def precompute_graph_reg(adj):
+    """Precompute the neighbor average discrepancy operator."""
+
+    # make a copy of the adjacency matrix and the outbound degree
+    resid, deg = adj.astype(float), adj.getnnz(axis=1)
+
+    # scale the rows : D^{-1} A
+    resid.data /= deg[adj.nonzero()[0]]
+
+    # subtract the matrix from the diagonalized mask
+    return sp.diags((deg > 0).astype(float)) - resid
+
+
 def graph_resid(F, adj):
     """Get the residual of the outgoing neighbor average of `F`."""
-
-    # get the downstream average: right multiply by a transpose of CSR is cheap
-    #  `adj` is the weighted adjacency matrix:
-    #  A_{ij} = \sigma_{ij} 1_{G}(i\to j)
-    out = safe_sparse_dot(F, adj.T, dense_output=True)
-
-    # get the outgoing degree: |j \in G_i| = |i \to u for any u|
-    deg = adj.getnnz(axis=1)[np.newaxis]
-
-    # out_sum is zero if there are no neighbors
-    mask = deg > 0
-    np.divide(out, deg, where=mask, out=out)
-
-    # return F (I - A^T D^{-1})
-    return np.subtract(F, out, where=mask, out=out)
+    return safe_sparse_dot(adj, F.T).T
 
 
-# In[18]:
 def graph_grad(F, adj):
     """Compute the gradient of the outgoing neighbors average w.r.t. `F`."""
-    resid = graph_resid(F, adj)
-    deg = np.maximum(adj.getnnz(axis=1), 1)[np.newaxis]
-    return resid - safe_sparse_dot(resid / deg, adj, dense_output=True)
+    return safe_sparse_dot(adj.T, graph_resid(F, adj).T).T
 
 
-# In[19]:
 def graph_hess_vect(V, F, adj):
     """Get the Hessian-vector product of the outgoing neighbors average."""
     return graph_grad(V, adj)
@@ -95,9 +89,14 @@ def f_step_tron_valj(f, Y, Z, C_F, eta_F, adj):
 
     objective = np.linalg.norm(Y - np.dot(Z, F), ord="fro") ** 2
     if C_F > 0:
-        reg_f_l2 = np.linalg.norm(F, ord="fro") ** 2
 
-        if sp.issparse(adj) and (eta_F > 0):
+        if eta_F < 1:
+            reg_f_l2 = np.linalg.norm(F, ord="fro") ** 2
+        else:
+            reg_f_l2, eta_F = 0., 1.
+        # end if
+
+        if eta_F > 0:
             reg_f_graph = np.linalg.norm(graph_resid(F, adj), ord="fro") ** 2
         else:
             reg_f_graph, eta_F = 0., 0.
@@ -119,11 +118,11 @@ def f_step_tron_grad(f, Y, Z, C_F, eta_F, adj):
     F = f.reshape(n_components, n_targets)
 
     ZTY, ZTZ = np.dot(Z.T, Y), np.dot(Z.T, Z)
-    if (C_F > 0) and (eta_F < 1):
+    if C_F > 0 and eta_F < 1:
         ZTZ.flat[::n_components + 1] += (1 - eta_F) * coef
 
     grad = np.dot(ZTZ, F) - ZTY
-    if (C_F > 0) and sp.issparse(adj) and (eta_F > 0):
+    if C_F > 0 and eta_F > 0:
         grad += graph_grad(F, adj) * eta_F * coef
 
     return grad.reshape(-1)
@@ -138,11 +137,11 @@ def f_step_tron_hess(v, Y, Z, C_F, eta_F, adj):
     V = v.reshape(n_components, n_targets)
 
     ZTZ = np.dot(Z.T, Z)
-    if (C_F > 0) and (eta_F < 1):
+    if C_F > 0 and eta_F < 1:
         ZTZ.flat[::n_components + 1] += (1 - eta_F) * coef
 
     hess_v = np.dot(ZTZ, V)
-    if (C_F > 0) and sp.issparse(adj) and (eta_F > 0):
+    if C_F > 0 and eta_F > 0:
         hess_v += graph_grad(V, adj) * eta_F * coef
 
     return hess_v.reshape(-1)
@@ -245,7 +244,7 @@ def phi_step(phi, Z, C_Z, C_phi, eta_Z, nugget=1e-8):
     if n_order < 1 or n_components < 1:
         return np.empty((n_components, n_order))
 
-    if not ((C_Z > 0) and (eta_Z > 0)):
+    if not (C_Z > 0 and eta_Z > 0):
         return np.zeros_like(phi)
 
     # embed into the last dimensions
@@ -285,7 +284,7 @@ def z_step_tron_valh(z, Y, F, phi, C_Z, eta_Z):
     objective = np.linalg.norm(Y - np.dot(Z, F), ord="fro") ** 2
     if C_Z > 0:
         reg_z_l2 = (np.linalg.norm(Z, ord="fro") ** 2)
-        if (n_samples > n_order) and (eta_Z > 0):
+        if n_samples > n_order and eta_Z > 0:
             reg_z_ar_j = np.linalg.norm(ar_resid(Z, phi), ord=2, axis=0) ** 2
             reg_z_ar = np.sum(reg_z_ar_j) * n_samples / (n_samples - n_order)
         else:
@@ -309,11 +308,11 @@ def z_step_tron_grad(z, Y, F, phi, C_Z, eta_Z):
     Z = z.reshape(n_samples, n_components)
 
     YFT, FFT = np.dot(Y, F.T), np.dot(F, F.T)
-    if (C_Z > 0) and (eta_Z < 1):
+    if C_Z > 0 and eta_Z < 1:
         FFT.flat[::n_components + 1] += (1 - eta_Z) * coef
 
     grad = np.dot(Z, FFT) - YFT
-    if (C_Z > 0) and (eta_Z > 0):
+    if C_Z > 0 and eta_Z > 0:
         ratio = n_samples / (n_samples - n_order)
         grad += ar_grad(Z, phi) * ratio * eta_Z * coef
 
@@ -330,11 +329,11 @@ def z_step_tron_hess(v, Y, F, phi, C_Z, eta_Z):
     V = v.reshape(n_samples, n_components)
 
     FFT = np.dot(F, F.T)
-    if (C_Z > 0) and (eta_Z < 1):
+    if C_Z > 0 and eta_Z < 1:
         FFT.flat[::n_components + 1] += (1 - eta_Z) * coef
 
     hess_v = np.dot(V, FFT)
-    if (C_Z > 0) and (eta_Z > 0):
+    if C_Z > 0 and eta_Z > 0:
         ratio = n_samples / (n_samples - n_order)
         hess_v += ar_grad(V, phi) * ratio * eta_Z * coef
 

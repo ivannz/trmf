@@ -49,10 +49,6 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
          eta_F=0., adj=None, fit_intercept=False, regressors=None, C_B=0.0,
          tol=1e-6, n_max_iterations=2500, n_max_mf_iter=5, f_step_kind="fgm",
          random_state=None):
-
-    if not (adj is None or sp.issparse(adj)):
-        raise TypeError("""The adjacency matrix must be sparse.""")
-
     if not all(C >= 0 for C in (C_Z, C_F, C_phi, C_B)):
         raise ValueError("""Negative ridge regularizer coefficient.""")
 
@@ -61,6 +57,14 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
 
     if not (n_components > 0):
         raise ValueError("""Empty latent factors are not supported.""")
+
+    if C_Z > 0 and eta_Z > 0:
+        if not sp.issparse(adj):
+            raise TypeError("""The adjacency matrix must be sparse.""")
+
+        # precompute the outbound average dsicrepancy operator
+        adj = precompute_graph_reg(adj)
+    # end if
 
     # validate the input data
     data = check_array(data, dtype="numeric", accept_sparse=False,
