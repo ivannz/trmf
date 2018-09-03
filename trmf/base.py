@@ -59,7 +59,7 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
     if not (n_components > 0):
         raise ValueError("""Empty latent factors are not supported.""")
 
-    if C_Z > 0 and eta_Z > 0:
+    if C_F > 0 and eta_F > 0:
         if not sp.issparse(adj):
             raise TypeError("""The adjacency matrix must be sparse.""")
 
