@@ -69,7 +69,7 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
 
     # validate the input data
     data = check_array(data, dtype="numeric", accept_sparse=False,
-                       ensure_min_samples=n_order)
+                       ensure_min_samples=n_order + 1)
 
     # prepare the regressors
     n_samples, n_targets = data.shape

@@ -232,10 +232,11 @@ class TRMFRegressor(BaseEstimator):
         # `X` is a matrix anyway (under any mode). no ensure_min_features=0
         #  since regression mode still requires at least one feature column.
         X = check_array(X, dtype="numeric", accept_sparse=False,
-                        ensure_min_samples=self.n_order, ensure_2d=True)
+                        ensure_min_samples=self.n_order + 1, ensure_2d=True)
         if self.fit_regression:
             y = check_array(y, dtype="numeric", accept_sparse=False,
-                            ensure_min_samples=self.n_order, ensure_2d=True)
+                            ensure_min_samples=self.n_order + 1,
+                            ensure_2d=True)
         else:
             if y is not None:
                 raise TypeError("""Exogenous regressors provided in `X`, """
