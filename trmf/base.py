@@ -10,6 +10,8 @@ from .steps import f_step, z_step_tron, phi_step
 from .steps import precompute_graph_reg
 from .ext import b_step
 
+from .extmath import csr_column_means, csr_gemm
+
 
 # In[48]:
 from sklearn.utils import check_random_state
@@ -20,7 +22,10 @@ def trmf_init(data, n_components, n_order, random_state=None):
 
     n_samples, n_targets = data.shape
     if sp.issparse(data):
-        U, s, Vh = sp.linalg.svds(data)
+        U, s, Vh = sp.linalg.svds(data, k=n_components)
+
+        order = np.argsort(s)[::-1]
+        U, s, Vh = U[:, order], s[order], Vh[order]
     else:
         U, s, Vh = np.linalg.svd(data, full_matrices=False)
 
@@ -68,7 +73,7 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
     # end if
 
     # validate the input data
-    data = check_array(data, dtype="numeric", accept_sparse=False,
+    data = check_array(data, dtype="numeric", accept_sparse=True,
                        ensure_min_samples=n_order + 1)
 
     # prepare the regressors
@@ -76,6 +81,10 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
     if isinstance(regressors, str):
         if regressors != "auto" or True:
             raise ValueError(f"""Invalid regressor setting `{regressors}`""")
+
+        if sp.issparse(data):
+            raise ValueError("""`data` cannot be sparse in """
+                             """autoregression mode""")
 
         # assumes order-1 explicit autoregression
         regressors, data = data[:-1], data[1:]
@@ -114,61 +123,120 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
     ZF, lip_f, lip_b = np.dot(factors, loadings), 500.0, 500.0
     ZF_old_norm, delta = np.linalg.norm(ZF, ord="fro"), +np.inf
 
-    # run the trmf algo
-    for iteration in range(n_max_iterations):
-        if (delta <= ZF_old_norm * tol) and (iteration > 0):
-            break
+    if sp.issparse(data):
+        # run the trmf algo
+        for iteration in range(n_max_iterations):
+            if (delta <= ZF_old_norm * tol) and (iteration > 0):
+                break
 
-        # Fit the exogenous ridge-regression with an optional intercept
-        if fit_intercept or n_regressors > 0:
-            resid = data - ZF
-            if fit_intercept:
-                intercept = resid.mean(axis=0, keepdims=True)
+            # Fit the exogenous ridge-regression with an optional intercept
+            if fit_intercept or n_regressors > 0:
+                resid = csr_gemm(-1, factors, loadings, 1, data.copy())
+
+                if fit_intercept:
+                    intercept = csr_column_means(resid)
+
+                if n_regressors > 0:
+                    if fit_intercept:
+                        resid.data -= intercept[0, resid.indices]
+                    # end if
+
+                    # solve for beta
+                    beta, lip_b = b_step(beta, resid, regressors_cntrd, C_B,
+                                         kind="tron")
+
+                    # mean(R) - mean(X) beta = mu
+                    if fit_intercept:
+                        intercept -= np.dot(regressors_mean, beta)
+                    # end if
+                # end if
+
+                # prepare the residuals for the trmf loop
+                resid = data.copy()
+                if n_regressors > 0:
+                    resid = csr_gemm(-1, regressors, beta, 1, resid)
+
+                if fit_intercept:
+                    resid.data -= intercept[0, resid.indices]
+            else:
+                resid = data
             # end if
 
-            if n_regressors > 0:
+            # update (F, Z), then phi
+            for inner_iter in range(n_max_mf_iter):
+                loadings, lip_f = f_step(loadings, resid, factors, C_F, eta_F,
+                                         adj, kind=f_step_kind, lip=lip_f)
+
+                factors = z_step_tron(factors, resid, loadings, ar_coef,
+                                      C_Z, eta_Z)
+            # end for
+
+            if n_order > 0:
+                ar_coef = phi_step(ar_coef, factors, C_Z, C_phi, eta_Z)
+            # end if
+
+            # recompute the reconstruction and convergence criteria
+            ZF, ZF_old = np.dot(factors, loadings), ZF
+            delta = np.linalg.norm(ZF - ZF_old, ord="fro")
+            ZF_old_norm = np.linalg.norm(ZF_old, ord="fro")
+        # end for
+    else:
+        # run the trmf algo
+        for iteration in range(n_max_iterations):
+            if (delta <= ZF_old_norm * tol) and (iteration > 0):
+                break
+
+            # Fit the exogenous ridge-regression with an optional intercept
+            if fit_intercept or n_regressors > 0:
+                resid = data - ZF
+                if fit_intercept:
+                    intercept = resid.mean(axis=0, keepdims=True)
+                # end if
+
+                if n_regressors > 0:
+                    if fit_intercept:
+                        resid -= intercept
+                    # end if
+
+                    # solve for beta
+                    beta, lip_b = b_step(beta, resid, regressors_cntrd, C_B,
+                                         kind="tron")
+
+                    # mean(R) - mean(X) beta = mu
+                    if fit_intercept:
+                        intercept -= np.dot(regressors_mean, beta)
+                    # end if
+                # end if
+
+                resid = data.copy()
+                if n_regressors > 0:
+                    resid -= np.dot(regressors, beta)
+
                 if fit_intercept:
                     resid -= intercept
-                # end if
-
-                # solve for beta
-                beta, lip_b = b_step(beta, resid, regressors_cntrd, C_B,
-                                     kind="tron")
-
-                # mean(R) - mean(X) beta = mu
-                if fit_intercept:
-                    intercept -= np.dot(regressors_mean, beta)
-                # end if
+            else:
+                resid = data
             # end if
 
-            resid = data.copy()
-            if n_regressors > 0:
-                resid -= np.dot(regressors, beta)
+            # update (F, Z), then phi
+            for inner_iter in range(n_max_mf_iter):
+                loadings, lip_f = f_step(loadings, resid, factors, C_F, eta_F,
+                                         adj, kind=f_step_kind, lip=lip_f)
 
-            if fit_intercept:
-                resid -= intercept
-        else:
-            resid = data
-        # end if
+                factors = z_step_tron(factors, resid, loadings, ar_coef,
+                                      C_Z, eta_Z)
+            # end for
 
-        # update (F, Z), then phi
-        for inner_iter in range(n_max_mf_iter):
-            loadings, lip_f = f_step(loadings, resid, factors, C_F, eta_F,
-                                     adj, kind=f_step_kind, lip=lip_f)
+            if n_order > 0:
+                ar_coef = phi_step(ar_coef, factors, C_Z, C_phi, eta_Z)
+            # end if
 
-            factors = z_step_tron(factors, resid, loadings, ar_coef,
-                                  C_Z, eta_Z)
+            # recompute the reconstruction and convergence criteria
+            ZF, ZF_old = np.dot(factors, loadings), ZF
+            delta = np.linalg.norm(ZF - ZF_old, ord="fro")
+            ZF_old_norm = np.linalg.norm(ZF_old, ord="fro")
         # end for
-
-        if n_order > 0:
-            ar_coef = phi_step(ar_coef, factors, C_Z, C_phi, eta_Z)
-        # end if
-
-        # recompute the reconstruction and convergence criteria
-        ZF, ZF_old = np.dot(factors, loadings), ZF
-        delta = np.linalg.norm(ZF - ZF_old, ord="fro")
-        ZF_old_norm = np.linalg.norm(ZF_old, ord="fro")
-    # end for
+    # end if
 
     return factors, loadings, ar_coef, intercept, beta
 
