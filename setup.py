@@ -2,7 +2,7 @@ from distutils.core import setup, Extension
 
 setup(
     name="trmf",
-    version="0.8",
+    version="0.9",
     description="""A pythonic library of matrix decomposition methods """
                 """for multivariate time-series.""",
     license="MIT License",
