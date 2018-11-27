@@ -229,20 +229,29 @@ class TRMFRegressor(BaseEstimator):
             Returns the instance itself.
         """
 
-        # `X` is a matrix anyway (under any mode). no ensure_min_features=0
-        #  since regression mode still requires at least one feature column.
-        X = check_array(X, dtype="numeric", accept_sparse=False,
-                        ensure_min_samples=self.n_order + 1, ensure_2d=True)
-        if self.fit_regression:
-            y = check_array(y, dtype="numeric", accept_sparse=False,
-                            ensure_min_samples=self.n_order + 1,
-                            ensure_2d=True)
-        else:
+        if not self.fit_regression:
             if y is not None:
                 raise TypeError("""Exogenous regressors provided in `X`, """
                                 """yet `fit_regression` is false.""")
+            X, y = None, X
 
-            X, y = np.empty((X.shape[0], 0)), X
+        else:
+            if y is None:
+                raise TypeError("""Endogenous data are is not provided """
+                                """in `y`, yet `fit_regression` is True.""")
+        # end if
+
+        # `y` is a matrix anyway (under any mode). no ensure_min_features=0
+        #  since regression mode still requires at least one feature column.
+        y = check_array(y, dtype="numeric", accept_sparse=True,
+                        ensure_min_samples=self.n_order + 1,
+                        ensure_2d=True)
+
+        if X is not None:
+            X = check_array(X, dtype="numeric", accept_sparse=False,
+                            ensure_min_samples=self.n_order + 1, ensure_2d=True)
+        else:
+            X = np.empty((y.shape[0], 0))
         # end if
 
         check_consistent_length(X, y)
