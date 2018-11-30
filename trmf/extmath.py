@@ -9,7 +9,7 @@ from sklearn.utils.extmath import safe_sparse_dot
 # In[26] -- sparse:
 @nb.njit("(float64, float64[:,::1], float64[:,::1], "
          "float64, int32[::1], int32[::1], float64[::1])",
-         fastmath=True, error_model="numpy", parallel=True, cache=False)
+         fastmath=True, error_model="numpy", parallel=False, cache=False)
 def _csr_gemm(alpha, X, D, beta, Sp, Sj, Sx):
     # computes\mathcal{P}_\Omega(X D) -- n1 x n2 sparse matrix
     if abs(beta) > 0:
