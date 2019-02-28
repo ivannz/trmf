@@ -1,9 +1,11 @@
-# updated version of `trmf_v0.8.2-sparse.ipynb` as of 2018-11-26 12:00
+# updated from version of `trmf_v0.9.ipynb` as of 2019-02-28 17:00
 
 import numpy as np
 import numba as nb
 
 import scipy.sparse as sp
+
+from scipy.optimize import fmin_l_bfgs_b, fmin_ncg
 
 from numpy.lib.stride_tricks import as_strided
 from sklearn.utils.extmath import safe_sparse_dot
@@ -192,6 +194,29 @@ def f_step_tron(F, Y, Z, C_F, eta_F, adj, rtol=5e-2, atol=1e-4, verbose=False,
     return F
 
 
+def f_step_ncg_hess_(F, v, Y, Z, C_F, eta_F, adj):
+    """A wrapper of the hess-vector product for ncg calls."""
+    return f_step_tron_hess(v, Y, Z, C_F, eta_F, adj)
+
+
+def f_step_ncg(F, Y, Z, C_F, eta_F, adj, **kwargs):
+    """Solve the F-step using scipy's Newton-CG."""
+    FF = fmin_ncg(f=f_step_tron_valj, x0=F.ravel(), disp=False,
+                  fprime=f_step_tron_grad, fhess_p=f_step_ncg_hess_,
+                  args=(Y, Z, C_F, eta_F, adj))
+
+    return FF.reshape(F.shape)
+
+
+def f_step_lbfgs(F, Y, Z, C_F, eta_F, adj, **kwargs):
+    """Solve the F-step using scipy's L-BFGS method."""
+    FF, f, d = fmin_l_bfgs_b(func=f_step_tron_valj, x0=F.ravel(), iprint=0,
+                             fprime=f_step_tron_grad,
+                             args=(Y, Z, C_F, eta_F, adj))
+
+    return FF.reshape(F.shape)
+
+
 # In[33]:
 def f_step_prox_func(F, Y, Z, C_F, eta_F, adj):
     """An interface to the f-step objective for unraveled matrices."""
@@ -258,8 +283,12 @@ def f_step(F, Y, Z, C_F, eta_F, adj, kind="fgm", **kwargs):
         F, lip = f_step_prox(F, Y, Z, C_F, eta_F, adj, **kwargs)
     elif kind == "tron":
         F = f_step_tron(F, Y, Z, C_F, eta_F, adj, **kwargs)
+    elif kind == "ncg":
+        F = f_step_ncg(F, Y, Z, C_F, eta_F, adj, **kwargs)
+    elif kind == "lbfgs":
+        F = f_step_lbfgs(F, Y, Z, C_F, eta_F, adj, **kwargs)
     else:
-        raise ValueError(f"""Unrecognozed optimization `{kind}`""")
+        raise ValueError(f"""Unrecognized method `{kind}`""")
 
     return F, lip
 
@@ -411,5 +440,41 @@ def z_step_tron(Z, Y, F, phi, C_Z, eta_Z, rtol=5e-2, atol=1e-4, verbose=False):
 
     tron(f_call, Z.ravel(), n_iterations=5, rtol=rtol, atol=atol,
          args=(Y, F, phi, C_Z, eta_Z), verbose=verbose)
+
+    return Z
+
+
+def z_step_ncg_hess_(Z, v, Y, F, phi, C_Z, eta_Z):
+    """A wrapper of the hess-vector product for ncg calls."""
+    return z_step_tron_hess(v, Y, F, phi, C_Z, eta_Z)
+
+
+def z_step_ncg(Z, Y, F, phi, C_Z, eta_Z, **kwargs):
+    """Solve the Z-step using scipy's Newton-CG."""
+    ZZ = fmin_ncg(f=z_step_tron_valh, x0=Z.ravel(), disp=False,
+                  fprime=z_step_tron_grad, fhess_p=z_step_ncg_hess_,
+                  args=(Y, F, phi, C_Z, eta_Z))
+    return ZZ.reshape(Z.shape)
+
+
+def z_step_lbfgs(Z, Y, F, phi, C_Z, eta_Z, **kwargs):
+    """Solve the Z-step using scipy's L-BFGS method."""
+    ZZ, f, d = fmin_l_bfgs_b(func=z_step_tron_valh, x0=Z.ravel(), iprint=0,
+                             fprime=z_step_tron_grad,
+                             args=(Y, F, phi, C_Z, eta_Z))
+
+    return ZZ.reshape(Z.shape)
+
+
+def z_step(Z, Y, F, phi, C_Z, eta_Z, kind="tron", **kwargs):
+    """A common subroutine solving the Z-step minimization problem."""
+    if kind == "tron":
+        Z = z_step_tron(Z, Y, F, phi, C_Z, eta_Z, **kwargs)
+    elif kind == "ncg":
+        Z = z_step_ncg(Z, Y, F, phi, C_Z, eta_Z, **kwargs)
+    elif kind == "lbfgs":
+        Z = z_step_lbfgs(Z, Y, F, phi, C_Z, eta_Z, **kwargs)
+    else:
+        raise ValueError(f"""Unrecognized method `{kind}`""")
 
     return Z

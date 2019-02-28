@@ -129,6 +129,19 @@ class TRMFRegressor(BaseEstimator):
         The maximum number of the inner matrix decomposition iterations
         to be run.
 
+    z_step_kind : str, (default="tron")
+        The optimization method to use for the latent factors. Available are
+        "tron" custom implementation of the Trust Region Conjugate Gradient
+        implementation, "ncg" scipy's Newton-Conjugate Gradient implementation,
+        and "lbfgs" for scipy's L-BFGS-B implementation.
+
+    f_step_kind : str, (default="tron")
+        The optimization method to use for the factor loadings. Available are
+        "tron" custom implementation of the Trust Region Conjugate Gradient
+        implementation, "ncg" scipy's Newton-Conjugate Gradient method,
+        "lbfgs" for scipy's L-BFGS-B implementation, and "fgm" for the Fast
+        Proximal Gradient method to ensure nonnegativity of the loadings.
+
     random_state : int, RandomState instance or None, optional (default=None)
         The seed of the pseudo random number generator to use when shuffling
         the data for the dual coordinate descent (if ``dual=True``). When
@@ -182,6 +195,8 @@ class TRMFRegressor(BaseEstimator):
                  tol=1e-5,
                  n_max_iterations=1000,
                  n_max_mf_iter=5,
+                 z_step_kind="tron",
+                 f_step_kind="tron",
                  random_state=None):
         super(TRMFRegressor, self).__init__()
 
@@ -201,6 +216,8 @@ class TRMFRegressor(BaseEstimator):
         self.n_max_mf_iter = n_max_mf_iter
         self.nonnegative_factors = nonnegative_factors
         self.random_state = random_state
+        self.z_step_kind = z_step_kind
+        self.f_step_kind = f_step_kind
 
     def fit(self, X, y=None, sample_weight=None):
         """Fit the TRMF regression model to the given training data.
@@ -256,7 +273,7 @@ class TRMFRegressor(BaseEstimator):
 
         check_consistent_length(X, y)
 
-        f_step_kind = "fgm" if self.nonnegative_factors else "tron"
+        f_step_kind = "fgm" if self.nonnegative_factors else self.f_step_kind
         estimates = trmf(y, self.n_components, self.n_order, self.C_Z,
                          self.C_F, self.C_phi, self.eta_Z, self.eta_F,
                          adj=self.adj, fit_intercept=self.fit_intercept,
@@ -264,6 +281,7 @@ class TRMFRegressor(BaseEstimator):
                          n_max_iterations=self.n_max_iterations,
                          n_max_mf_iter=self.n_max_mf_iter,
                          f_step_kind=f_step_kind,
+                         z_step_kind=self.z_step_kind,
                          random_state=self.random_state)
 
         # Record the estimates in this instance's properties

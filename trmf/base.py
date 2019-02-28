@@ -6,7 +6,7 @@ import scipy.sparse as sp
 
 from sklearn.utils import check_consistent_length, check_array
 
-from .steps import f_step, z_step_tron, phi_step
+from .steps import f_step, z_step, phi_step
 from .steps import precompute_graph_reg
 from .ext import b_step
 
@@ -53,8 +53,8 @@ def trmf_init(data, n_components, n_order, random_state=None):
 # Used to be `In[49]:` but has been modified on the 28th of August
 def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
          eta_F=0., adj=None, fit_intercept=False, regressors=None, C_B=0.0,
-         tol=1e-6, n_max_iterations=2500, n_max_mf_iter=5, f_step_kind="fgm",
-         random_state=None):
+         tol=1e-6, n_max_iterations=2500, n_max_mf_iter=5,
+         f_step_kind="fgm", z_step_kind="tron", random_state=None):
     if not all(C >= 0 for C in (C_Z, C_F, C_phi, C_B)):
         raise ValueError("""Negative ridge regularizer coefficient.""")
 
@@ -167,8 +167,8 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
                 loadings, lip_f = f_step(loadings, resid, factors, C_F, eta_F,
                                          adj, kind=f_step_kind, lip=lip_f)
 
-                factors = z_step_tron(factors, resid, loadings, ar_coef,
-                                      C_Z, eta_Z)
+                factors = z_step(factors, resid, loadings, ar_coef,
+                                 C_Z, eta_Z, kind=z_step_kind)
             # end for
 
             if n_order > 0:
@@ -223,8 +223,8 @@ def trmf(data, n_components, n_order, C_Z, C_F, C_phi, eta_Z,
                 loadings, lip_f = f_step(loadings, resid, factors, C_F, eta_F,
                                          adj, kind=f_step_kind, lip=lip_f)
 
-                factors = z_step_tron(factors, resid, loadings, ar_coef,
-                                      C_Z, eta_Z)
+                factors = z_step(factors, resid, loadings, ar_coef,
+                                 C_Z, eta_Z, kind=z_step_kind)
             # end for
 
             if n_order > 0:
