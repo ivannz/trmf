@@ -39,9 +39,9 @@ def ar_hess_vect(V, Z, phi):
 
     # get the derivative w.r.t. the series
     hess_v = np.zeros_like(V)
+    hess_v[n_order:] = resid
     for k in range(n_order):
-        hess_v[k:k - n_order] += resid * phi[:, k]
-    hess_v[n_order:] -= resid
+        hess_v[k:k - n_order] -= resid * phi[:, k]
 
     return hess_v
 
